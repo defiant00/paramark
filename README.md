@@ -8,7 +8,8 @@ Implemented in [Zig](https://ziglang.org/), last compiled with 0.12.0-dev.3033+0
 ```
 (tag(content, ((parens)) are doubled)tag)
 (self-closing)
-(tag flag-1 flag.2 prop_1=val prop2="some value")
+(tag flag-1 flag.2 prop_1=val prop2="some value" "quoted flag" "quoted key"=val)
+( "quoted tag"(need a space between (( and a quoted tag to differentiate from literal text)"quoted tag")
 ("literal text, such as (parens)")
 ("""
 "literal text, the number of opening and closing quotes must match" - (mark) spec
