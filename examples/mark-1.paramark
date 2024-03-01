@@ -1,0 +1,19 @@
+(html(
+(head((title(Hello world!)title))head)
+(body(
+
+Hello, this is some text! (br)
+And ((some)) more.
+
+(br)(br)
+
+("this is some
+literal text
+in (mark)")
+
+(br)(br)
+
+(""And this is some where we can "quote" however we like"")
+
+)body)
+)html)
