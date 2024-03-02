@@ -61,9 +61,7 @@ fn advance(self: *Parser) void {
         // debug
         std.debug.print("{} '{s}'\n", .{ self.current.type, self.current.value });
 
-        break;
-
-        // if (self.current.type != .error_) break;
+        if (self.current.type != .comment and self.current.type != .error_) break;
     }
 }
 
