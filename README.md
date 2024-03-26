@@ -6,6 +6,7 @@
 Implemented in [Zig](https://ziglang.org/), last compiled with 0.12.0-dev.3033+031f23117.
 
 ```
+(-pm v="1.0"-)
 (-comment-)(---comment, the number of dashes must match---)
 (tag(content, ((parens)) are doubled)tag)
 (self-closing)

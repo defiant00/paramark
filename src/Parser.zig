@@ -52,11 +52,11 @@ fn errorAt(self: Parser, token: Token, message: []const u8) !void {
     return error.Syntax;
 }
 
-fn advance(self: *Parser) void {
+fn advance(self: *Parser) !void {
     self.previous = self.current;
 
     while (true) {
-        self.current = self.lexer.lexToken();
+        self.current = try self.lexer.lexToken();
 
         // debug
         std.debug.print("{} '{s}'\n", .{ self.current.type, self.current.value });
@@ -69,18 +69,18 @@ fn check(self: Parser, expected: Token.Type) bool {
     return self.current.type == expected;
 }
 
-fn match(self: *Parser, expected: Token.Type) bool {
+fn match(self: *Parser, expected: Token.Type) !bool {
     if (!self.check(expected)) return false;
-    self.advance();
+    try self.advance();
     return true;
 }
 
-fn consume(self: *Parser, expected: Token.Type, message: []const u8) void {
+fn consume(self: *Parser, expected: Token.Type, message: []const u8) !void {
     if (!self.check(expected)) errorAt(self.current, message);
-    self.advance();
+    try self.advance();
 }
 
-pub fn parse(alloc: Allocator, source: []const u8) Result {
+pub fn parse(alloc: Allocator, source: []const u8) !Result {
     var parser = Parser{
         .lexer = Lexer.init(source),
         .current = undefined,
@@ -88,9 +88,9 @@ pub fn parse(alloc: Allocator, source: []const u8) Result {
         .result = Result.init(alloc),
     };
 
-    parser.advance();
-    while (!parser.match(.eof)) {
-        parser.advance();
+    try parser.advance();
+    while (!try parser.match(.eof)) {
+        try parser.advance();
     }
 
     return parser.result;

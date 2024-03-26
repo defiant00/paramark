@@ -36,7 +36,7 @@ fn fileDebug(alloc: Allocator, path: []const u8) !void {
     const source = try file.readToEndAlloc(alloc, std.math.maxInt(usize));
     defer alloc.free(source);
 
-    const result = Parser.parse(alloc, source);
+    const result = try Parser.parse(alloc, source);
     defer result.deinit();
 
     result.print();

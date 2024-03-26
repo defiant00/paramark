@@ -1,8 +1,10 @@
+const unicode = @import("std").unicode;
+
 pub const Token = struct {
     pub const Type = enum {
-        left_paren,
-        right_paren,
-        equal,
+        open,
+        close,
+        assign,
         content,
         literal_content,
         literal,
@@ -31,12 +33,37 @@ start_index: usize,
 current_index: usize,
 in_content: bool,
 
+open_char: u21,
+close_char: u21,
+assign_char: u21,
+quote_char: u21,
+comment_char: u21,
+
 pub fn init(source: []const u8) Lexer {
+    var open_ch: u21 = '(';
+    var close_ch: u21 = ')';
+    var assign_ch: u21 = '=';
+    var quote_ch: u21 = '"';
+    var comment_ch: u21 = '-';
+
+    // TODO
+    open_ch = '(';
+    close_ch = ')';
+    assign_ch = '=';
+    quote_ch = '"';
+    comment_ch = '-';
+
     return .{
         .source = source,
         .start_index = 0,
         .current_index = 0,
         .in_content = true,
+
+        .open_char = open_ch,
+        .close_char = close_ch,
+        .assign_char = assign_ch,
+        .quote_char = quote_ch,
+        .comment_char = comment_ch,
     };
 }
 
@@ -48,6 +75,7 @@ pub fn absoluteRange(self: Lexer, tok: Token) AbsoluteRange {
         .end_column = 0,
     };
 
+    // TODO
     for (self.source[0..tok.position]) |c| {
         if (c == '\n') {
             ar.start_line += 1;
@@ -60,6 +88,7 @@ pub fn absoluteRange(self: Lexer, tok: Token) AbsoluteRange {
     ar.end_line = ar.start_line;
     ar.end_column = ar.start_column;
 
+    // TODO
     for (tok.value) |c| {
         if (c == '\n') {
             ar.end_line += 1;
@@ -76,17 +105,22 @@ fn isAtEnd(self: Lexer) bool {
     return self.current_index >= self.source.len;
 }
 
-fn advance(self: *Lexer) void {
+fn currentLength(self: Lexer) !u3 {
+    return unicode.utf8ByteSequenceLength(self.source[self.current_index]);
+}
+
+fn advance(self: *Lexer) !void {
     if (!self.isAtEnd()) {
-        self.current_index += 1;
+        self.current_index += try self.currentLength();
     }
 }
 
-fn peek(self: Lexer) u8 {
-    return self.source[self.current_index];
+fn peek(self: Lexer) !u21 {
+    return unicode.utf8Decode(self.source[self.current_index .. self.current_index + try self.currentLength()]);
 }
 
-fn peekAt(self: Lexer, offset: usize) ?u8 {
+// TODO
+fn peekAt(self: Lexer, offset: usize) ?u21 {
     return if (self.current_index + offset < self.source.len) self.source[self.current_index + offset] else null;
 }
 
@@ -95,7 +129,7 @@ fn discard(self: *Lexer) void {
 }
 
 fn token(self: *Lexer, token_type: Token.Type) Token {
-    if (token_type == .left_paren or token_type == .right_paren) {
+    if (token_type == .open or token_type == .close) {
         self.in_content = !self.in_content;
     }
 
@@ -118,21 +152,18 @@ fn errorToken(self: *Lexer, message: []const u8) Token {
     return tok;
 }
 
-fn isLiteral(c: u8) bool {
-    return switch (c) {
-        ' ', '\t', '\r', '\n', '(', ')', '=' => false,
-        else => true,
-    };
+fn isLiteral(self: Lexer, c: u21) bool {
+    return !(c == ' ' or c == '\t' or c == '\r' or c == '\n' or c == self.open_char or c == self.close_char or c == self.assign_char);
 }
 
-fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u8, unterm_msg: []const u8) Token {
-    // left paren has already been accepted
+fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []const u8) !Token {
+    // open has already been accepted
 
     // count depth
     var depth: usize = 0;
-    while (!self.isAtEnd() and self.peek() == marker) {
+    while (!self.isAtEnd() and try self.peek() == marker) {
         depth += 1;
-        self.advance();
+        try self.advance();
     }
 
     // discard start tag
@@ -140,7 +171,7 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u8, unterm_msg: []cons
 
     // consume content
     while (!self.isAtEnd()) {
-        if (self.peek() == marker) {
+        if (try self.peek() == marker) {
             var end_found = true;
             for (1..depth) |i| {
                 if (self.peekAt(i) != marker) {
@@ -148,12 +179,12 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u8, unterm_msg: []cons
                     break;
                 }
             }
-            if (self.peekAt(depth) != ')') {
+            if (self.peekAt(depth) != self.close_char) {
                 end_found = false;
             }
             if (end_found) break;
         }
-        self.advance();
+        try self.advance();
     }
 
     if (self.isAtEnd()) return self.errorToken(unterm_msg);
@@ -161,72 +192,72 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u8, unterm_msg: []cons
     const tok = self.token(tok_type);
 
     // accept and discard end tag
-    for (0..depth + 1) |_| self.advance();
+    for (0..depth + 1) |_| try self.advance();
     self.discard();
 
     return tok;
 }
 
-fn content(self: *Lexer) Token {
+fn content(self: *Lexer) !Token {
     while (!self.isAtEnd()) {
-        const c = self.peek();
-        if (c == '(' or c == ')') break;
-        self.advance();
+        const c = try self.peek();
+        if (c == self.open_char or c == self.close_char) break;
+        try self.advance();
     }
     return self.token(.content);
 }
 
-fn contentLeftParen(self: *Lexer) Token {
+fn contentOpen(self: *Lexer) !Token {
     if (!self.isAtEnd()) {
-        if (self.peek() == '(') {
-            self.advance();
+        if (try self.peek() == self.open_char) {
+            try self.advance();
             return self.token(.content);
-        } else if (self.peek() == '"') {
-            return self.multiBlock(.literal_content, '"', "unterminated literal text");
-        } else if (self.peek() == '-') {
-            return self.multiBlock(.comment, '-', "unterminated comment");
+        } else if (try self.peek() == self.quote_char) {
+            return self.multiBlock(.literal_content, self.quote_char, "unterminated literal text");
+        } else if (try self.peek() == self.comment_char) {
+            return self.multiBlock(.comment, self.comment_char, "unterminated comment");
         }
     }
-    return self.token(.left_paren);
+    return self.token(.open);
 }
 
-fn contentRightParen(self: *Lexer) Token {
+fn contentClose(self: *Lexer) !Token {
     if (!self.isAtEnd()) {
-        if (self.peek() == ')') {
-            self.advance();
+        if (try self.peek() == self.close_char) {
+            try self.advance();
             return self.token(.content);
         }
     }
-    return self.token(.right_paren);
+    return self.token(.close);
 }
 
-fn tagLeftParen(self: *Lexer) Token {
+fn tagOpen(self: *Lexer) !Token {
     if (!self.isAtEnd()) {
-        if (self.peek() == '-') {
-            return self.multiBlock(.comment, '-', "unterminated comment");
+        if (try self.peek() == self.comment_char) {
+            return self.multiBlock(.comment, self.comment_char, "unterminated comment");
         }
     }
-    return self.token(.left_paren);
+    return self.token(.open);
 }
 
-fn tagLiteral(self: *Lexer) Token {
-    while (!self.isAtEnd() and isLiteral(self.peek())) self.advance();
+fn tagLiteral(self: *Lexer) !Token {
+    while (!self.isAtEnd() and self.isLiteral(try self.peek())) try self.advance();
     return self.token(.literal);
 }
 
-fn tagString(self: *Lexer) Token {
+fn tagString(self: *Lexer) !Token {
     // discard opening quote
     self.discard();
 
     while (!self.isAtEnd()) {
-        if (self.peek() == '"') {
-            if (self.peekAt(1) == '"') {
-                self.advance();
+        if (try self.peek() == self.quote_char) {
+            if (self.peekAt(1) == self.quote_char) {
+                try self.advance();
             } else {
                 break;
             }
         }
-        self.advance();
+        try self.advance();
     }
 
     if (self.isAtEnd()) return self.errorToken("unterminated string");
@@ -234,31 +265,39 @@ fn tagString(self: *Lexer) Token {
     const tok = self.token(.string);
 
     // discard closing quote
-    self.advance();
+    try self.advance();
     self.discard();
 
     return tok;
 }
 
-pub fn lexToken(self: *Lexer) Token {
+pub fn lexToken(self: *Lexer) !Token {
     while (!self.isAtEnd()) {
-        const c = self.peek();
-        self.advance();
+        const c = try self.peek();
+        try self.advance();
 
         if (self.in_content) {
-            switch (c) {
-                '(' => return self.contentLeftParen(),
-                ')' => return self.contentRightParen(),
-                else => return self.content(),
+            if (c == self.open_char) {
+                return self.contentOpen();
+            } else if (c == self.close_char) {
+                return self.contentClose();
             }
+            return self.content();
         } else {
             switch (c) {
                 ' ', '\t', '\r', '\n' => self.discard(),
-                '(' => return self.tagLeftParen(),
-                ')' => return self.token(.right_paren),
-                '=' => return self.token(.equal),
-                '"' => return self.tagString(),
-                else => return self.tagLiteral(),
+                else => {
+                    if (c == self.open_char) {
+                        return self.tagOpen();
+                    } else if (c == self.close_char) {
+                        return self.token(.close);
+                    } else if (c == self.assign_char) {
+                        return self.token(.assign);
+                    } else if (c == self.quote_char) {
+                        return self.tagString();
+                    }
+                    return self.tagLiteral();
+                },
             }
         }
     }

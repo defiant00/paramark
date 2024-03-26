@@ -1,3 +1,4 @@
+(-pm v="1.0"-)
 this is ((some)) content
 with (a) tag
 (fancy a b "c" d=e "f"=g "h" i="j" "k"="l"( content! )fancy)
