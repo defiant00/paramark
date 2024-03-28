@@ -82,7 +82,7 @@ fn consume(self: *Parser, expected: Token.Type, message: []const u8) !void {
 
 pub fn parse(alloc: Allocator, source: []const u8) !Result {
     var parser = Parser{
-        .lexer = Lexer.init(source),
+        .lexer = try Lexer.init(source),
         .current = undefined,
         .previous = undefined,
         .result = Result.init(alloc),

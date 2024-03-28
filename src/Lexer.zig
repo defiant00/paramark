@@ -1,4 +1,5 @@
-const unicode = @import("std").unicode;
+const std = @import("std");
+const unicode = std.unicode;
 
 pub const Token = struct {
     pub const Type = enum {
@@ -39,32 +40,97 @@ assign_char: u21,
 quote_char: u21,
 comment_char: u21,
 
-pub fn init(source: []const u8) Lexer {
-    var open_ch: u21 = '(';
-    var close_ch: u21 = ')';
-    var assign_ch: u21 = '=';
-    var quote_ch: u21 = '"';
-    var comment_ch: u21 = '-';
-
-    // TODO
-    open_ch = '(';
-    close_ch = ')';
-    assign_ch = '=';
-    quote_ch = '"';
-    comment_ch = '-';
-
-    return .{
+pub fn init(source: []const u8) !Lexer {
+    var lexer: Lexer = .{
         .source = source,
         .start_index = 0,
         .current_index = 0,
         .in_content = true,
 
-        .open_char = open_ch,
-        .close_char = close_ch,
-        .assign_char = assign_ch,
-        .quote_char = quote_ch,
-        .comment_char = comment_ch,
+        .open_char = '(',
+        .close_char = ')',
+        .assign_char = '=',
+        .quote_char = '"',
+        .comment_char = '-',
     };
+
+    // (-pm v="1.0"-)
+    var open_ch: u21 = '(';
+    var close_ch: u21 = ')';
+    var assign_ch: u21 = '=';
+    var quote_ch: u21 = '"';
+    var comment_ch: u21 = '-';
+    var valid_header = false;
+
+    var iter = (try unicode.Utf8View.init(source)).iterator();
+
+    // open
+    if (iter.nextCodepoint()) |c_open| {
+        open_ch = c_open;
+
+        // comment
+        if (iter.nextCodepoint()) |c_comment| {
+            comment_ch = c_comment;
+
+            // "pm v"
+            if (iter.nextCodepoint() == 'p' and iter.nextCodepoint() == 'm' and iter.nextCodepoint() == ' ' and iter.nextCodepoint() == 'v') {
+
+                // assign
+                if (iter.nextCodepoint()) |c_assign| {
+                    assign_ch = c_assign;
+
+                    // quote
+                    if (iter.nextCodepoint()) |c_quote| {
+                        quote_ch = c_quote;
+
+                        // version
+                        while (iter.nextCodepoint()) |c_version| {
+                            if (isNumeric(c_version)) {
+                                // part of the version, do nothing
+                            } else {
+
+                                // closing quote
+                                if (c_version == quote_ch) {
+
+                                    // comment
+                                    if (iter.nextCodepoint() == comment_ch) {
+
+                                        // close
+                                        if (iter.nextCodepoint()) |c_close| {
+                                            close_ch = c_close;
+
+                                            valid_header = true;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (valid_header) {
+        lexer.open_char = open_ch;
+        lexer.close_char = close_ch;
+        lexer.assign_char = assign_ch;
+        lexer.quote_char = quote_ch;
+        lexer.comment_char = comment_ch;
+
+        std.debug.print("open    '{u}'\nclose   '{u}'\nassign  '{u}'\nquote   '{u}'\ncomment '{u}'\n", .{
+            open_ch,
+            close_ch,
+            assign_ch,
+            quote_ch,
+            comment_ch,
+        });
+    } else {
+        std.debug.print("invalid header\n", .{});
+    }
+
+    return lexer;
 }
 
 pub fn absoluteRange(self: Lexer, tok: Token) AbsoluteRange {
@@ -75,8 +141,8 @@ pub fn absoluteRange(self: Lexer, tok: Token) AbsoluteRange {
         .end_column = 0,
     };
 
-    // TODO
-    for (self.source[0..tok.position]) |c| {
+    var iter = (try unicode.Utf8View.init(self.source[0..tok.position])).iterator();
+    while (iter.nextCodepoint()) |c| {
         if (c == '\n') {
             ar.start_line += 1;
             ar.start_column = 0;
@@ -88,8 +154,8 @@ pub fn absoluteRange(self: Lexer, tok: Token) AbsoluteRange {
     ar.end_line = ar.start_line;
     ar.end_column = ar.start_column;
 
-    // TODO
-    for (tok.value) |c| {
+    iter = (try unicode.Utf8View.init(tok.value)).iterator();
+    while (iter.nextCodepoint()) |c| {
         if (c == '\n') {
             ar.end_line += 1;
             ar.end_column = 0;
@@ -119,9 +185,16 @@ fn peek(self: Lexer) !u21 {
     return unicode.utf8Decode(self.source[self.current_index .. self.current_index + try self.currentLength()]);
 }
 
-// TODO
-fn peekAt(self: Lexer, offset: usize) ?u21 {
-    return if (self.current_index + offset < self.source.len) self.source[self.current_index + offset] else null;
+fn peekAt(self: Lexer, offset: usize) !?u21 {
+    var index = self.current_index;
+    for (0..offset) |_| {
+        const size = try unicode.utf8ByteSequenceLength(self.source[index]);
+        index += size;
+
+        if (index >= self.source.len) return null;
+    }
+    const size = try unicode.utf8ByteSequenceLength(self.source[index]);
+    return try unicode.utf8Decode(self.source[index .. index + size]);
 }
 
 fn discard(self: *Lexer) void {
@@ -153,7 +226,21 @@ fn errorToken(self: *Lexer, message: []const u8) Token {
 }
 
 fn isLiteral(self: Lexer, c: u21) bool {
-    return !(c == ' ' or c == '\t' or c == '\r' or c == '\n' or c == self.open_char or c == self.close_char or c == self.assign_char);
+    return !(isWhitespace(c) or c == self.open_char or c == self.close_char or c == self.assign_char);
+}
+
+fn isNumeric(c: u21) bool {
+    return switch (c) {
+        '0'...'9', '.' => true,
+        else => false,
+    };
+}
+
+fn isWhitespace(c: u21) bool {
+    return switch (c) {
+        ' ', '\t', '\r', '\n' => true,
+        else => false,
+    };
 }
 
 fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []const u8) !Token {
@@ -174,12 +261,12 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []con
         if (try self.peek() == marker) {
             var end_found = true;
             for (1..depth) |i| {
-                if (self.peekAt(i) != marker) {
+                if (try self.peekAt(i) != marker) {
                     end_found = false;
                     break;
                 }
             }
-            if (self.peekAt(depth) != self.close_char) {
+            if (try self.peekAt(depth) != self.close_char) {
                 end_found = false;
             }
             if (end_found) break;
@@ -251,7 +338,7 @@ fn tagString(self: *Lexer) !Token {
 
     while (!self.isAtEnd()) {
         if (try self.peek() == self.quote_char) {
-            if (self.peekAt(1) == self.quote_char) {
+            if (try self.peekAt(1) == self.quote_char) {
                 try self.advance();
             } else {
                 break;
