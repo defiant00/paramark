@@ -59,7 +59,7 @@ fn advance(self: *Parser) !void {
         self.current = try self.lexer.lexToken();
 
         // debug
-        std.debug.print("{} '{s}'\n", .{ self.current.type, self.current.value });
+        std.debug.print("{}:{} '{s}'\n", .{ self.current.type, self.current.depth, self.current.value });
 
         if (self.current.type != .comment and self.current.type != .error_) break;
     }

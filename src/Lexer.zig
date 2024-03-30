@@ -16,6 +16,7 @@ pub const Token = struct {
     };
 
     type: Type,
+    depth: u8,
     position: usize,
     value: []const u8,
 };
@@ -202,12 +203,17 @@ fn discard(self: *Lexer) void {
 }
 
 fn token(self: *Lexer, token_type: Token.Type) Token {
+    return self.depthToken(token_type, 0);
+}
+
+fn depthToken(self: *Lexer, token_type: Token.Type, depth: u8) Token {
     if (token_type == .open or token_type == .close) {
         self.in_content = !self.in_content;
     }
 
     const tok = .{
         .type = token_type,
+        .depth = depth,
         .position = self.start_index,
         .value = self.source[self.start_index..self.current_index],
     };
@@ -218,6 +224,7 @@ fn token(self: *Lexer, token_type: Token.Type) Token {
 fn errorToken(self: *Lexer, message: []const u8) Token {
     const tok = .{
         .type = .error_,
+        .depth = 0,
         .position = self.start_index,
         .value = message,
     };
@@ -247,7 +254,7 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []con
     // open has already been accepted
 
     // count depth
-    var depth: usize = 0;
+    var depth: u8 = 0;
     while (!self.isAtEnd() and try self.peek() == marker) {
         depth += 1;
         try self.advance();
@@ -276,7 +283,7 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []con
 
     if (self.isAtEnd()) return self.errorToken(unterm_msg);
 
-    const tok = self.token(tok_type);
+    const tok = self.depthToken(tok_type, depth);
 
     // accept and discard end tag
     for (0..depth + 1) |_| try self.advance();
