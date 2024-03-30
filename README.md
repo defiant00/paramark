@@ -16,4 +16,6 @@ Implemented in [Zig](https://ziglang.org/), last compiled with 0.12.0-dev.3033+0
 ("""
 "literal text, the number of opening and closing quotes must match" - (mark) spec
 """)
+(first(tags (second(can be)first) interleaved)second)
+(tag 1(closing tags are (tag 2(matched on both name)tag 1) and optionally any properties)tag 2)
 ```
