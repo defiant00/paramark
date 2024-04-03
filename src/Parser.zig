@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const unicode = std.unicode;
 
 const Lexer = @import("Lexer.zig");
 const Token = Lexer.Token;
@@ -80,6 +81,41 @@ fn consume(self: *Parser, expected: Token.Type, message: []const u8) !void {
     try self.advance();
 }
 
+fn append(self: *Parser, val: []const u8) !void {
+    try self.result.buffer.appendSlice(val);
+}
+
+fn appendUnescapeContent(self: *Parser, val: []const u8) !void {
+    var i: usize = 0;
+    while (i < val.len) {
+        const size = try unicode.utf8ByteSequenceLength(val[i]);
+        try self.result.buffer.appendSlice(val[i .. i + size]);
+        const c = try unicode.utf8Decode(val[i .. i + size]);
+        if (c == self.lexer.open_char or c == self.lexer.close_char) {
+            // since the next character should always be the same, use the same size
+            i += size;
+        }
+        i += size;
+    }
+}
+
+fn parseContent(self: *Parser) !void {
+    if (try self.match(.content)) {
+        try self.appendUnescapeContent(self.previous.value);
+    } else if (try self.match(.literal_content)) {
+        try self.append(self.previous.value);
+    } else {
+        // TODO tags
+        try self.advance();
+    }
+}
+
+fn parseFile(self: *Parser) !void {
+    while (!try self.match(.eof)) {
+        try self.parseContent();
+    }
+}
+
 pub fn parse(alloc: Allocator, source: []const u8) !Result {
     var parser = Parser{
         .lexer = try Lexer.init(source),
@@ -89,9 +125,7 @@ pub fn parse(alloc: Allocator, source: []const u8) !Result {
     };
 
     try parser.advance();
-    while (!try parser.match(.eof)) {
-        try parser.advance();
-    }
+    try parser.parseFile();
 
     return parser.result;
 }
