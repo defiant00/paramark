@@ -6,20 +6,70 @@ const Lexer = @import("Lexer.zig");
 const Token = Lexer.Token;
 
 const Result = struct {
-    buffer: std.ArrayList(u8),
+    const Tag = struct {
+        name: []const u8,
+    };
+
+    const DepthVal = struct {
+        depth: u8,
+        value: []const u8,
+    };
+
+    const Item = union(enum) {
+        content: []const u8,
+        literal_content: DepthVal,
+        open_tag: Tag,
+        close_tag: Tag,
+        tag: Tag,
+        comment: DepthVal,
+
+        fn print(self: Item) void {
+            switch (self) {
+                .content => std.debug.print("content: \"{s}\"\n", .{self.content}),
+                .literal_content => std.debug.print("literal content ({}): \"{s}\"\n", .{
+                    self.literal_content.depth,
+                    self.literal_content.value,
+                }),
+                .open_tag, .close_tag, .tag => {
+                    std.debug.print("{}\n", .{self});
+                    // TODO print out properties
+                },
+                .comment => std.debug.print("comment ({}): \"{s}\"\n", .{
+                    self.comment.depth,
+                    self.comment.value,
+                }),
+            }
+        }
+    };
+
+    items: std.ArrayList(Item),
 
     pub fn init(alloc: Allocator) Result {
         return .{
-            .buffer = std.ArrayList(u8).init(alloc),
+            .items = std.ArrayList(Item).init(alloc),
         };
     }
 
     pub fn deinit(self: Result) void {
-        self.buffer.deinit();
+        self.items.deinit();
     }
 
     pub fn print(self: Result) void {
-        std.debug.print("buffer:\n{s}", .{self.buffer.items});
+        std.debug.print("Results:\n", .{});
+        for (self.items.items) |i| {
+            i.print();
+        }
+    }
+
+    fn appendContent(self: *Result, value: []const u8) !void {
+        try self.items.append(.{ .content = value });
+    }
+
+    fn appendLiteralContent(self: *Result, value: []const u8, depth: u8) !void {
+        try self.items.append(.{ .literal_content = .{
+            .depth = depth,
+            .value = value,
+        } });
     }
 };
 
@@ -81,17 +131,13 @@ fn consume(self: *Parser, expected: Token.Type, message: []const u8) !void {
     try self.advance();
 }
 
-fn append(self: *Parser, val: []const u8) !void {
-    try self.result.buffer.appendSlice(val);
-}
-
 fn appendUnescapeContent(self: *Parser, val: []const u8) !void {
     var i: usize = 0;
     while (i < val.len) {
         const size = try unicode.utf8ByteSequenceLength(val[i]);
-        try self.result.buffer.appendSlice(val[i .. i + size]);
+        // try self.result.buffer.appendSlice(val[i .. i + size]);
         const c = try unicode.utf8Decode(val[i .. i + size]);
-        if (c == self.lexer.open_char or c == self.lexer.close_char) {
+        if (c == self.lexer.header.open or c == self.lexer.header.close) {
             // since the next character should always be the same, use the same size
             i += size;
         }
@@ -101,9 +147,10 @@ fn appendUnescapeContent(self: *Parser, val: []const u8) !void {
 
 fn parseContent(self: *Parser) !void {
     if (try self.match(.content)) {
-        try self.appendUnescapeContent(self.previous.value);
+        // try self.appendUnescapeContent(self.previous.value);
+        try self.result.appendContent(self.previous.value);
     } else if (try self.match(.literal_content)) {
-        try self.append(self.previous.value);
+        try self.result.appendLiteralContent(self.previous.value, self.previous.depth);
     } else if (try self.match(.comment)) {
         // TODO comments
     } else {

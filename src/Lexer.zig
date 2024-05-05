@@ -1,6 +1,14 @@
 const std = @import("std");
 const unicode = std.unicode;
 
+pub const Header = struct {
+    open: u21,
+    close: u21,
+    assign: u21,
+    quote: u21,
+    comment: u21,
+};
+
 pub const Token = struct {
     pub const Type = enum {
         open,
@@ -35,54 +43,48 @@ start_index: usize,
 current_index: usize,
 in_content: bool,
 
-open_char: u21,
-close_char: u21,
-assign_char: u21,
-quote_char: u21,
-comment_char: u21,
+header: Header,
 
 pub fn init(source: []const u8) !Lexer {
-    var lexer: Lexer = .{
+    return .{
         .source = source,
         .start_index = 0,
         .current_index = 0,
         .in_content = true,
 
-        .open_char = '(',
-        .close_char = ')',
-        .assign_char = '=',
-        .quote_char = '"',
-        .comment_char = '-',
+        .header = try parseHeader(source),
     };
+}
 
+pub fn parseHeader(source: []const u8) !Header {
     // (-pm v="1.0"-)
-    var open_ch: u21 = '(';
-    var close_ch: u21 = ')';
-    var assign_ch: u21 = '=';
-    var quote_ch: u21 = '"';
-    var comment_ch: u21 = '-';
+    var open: u21 = '(';
+    var close: u21 = ')';
+    var assign: u21 = '=';
+    var quote: u21 = '"';
+    var comment: u21 = '-';
     var valid_header = false;
 
     var iter = (try unicode.Utf8View.init(source)).iterator();
 
     // open
     if (iter.nextCodepoint()) |c_open| {
-        open_ch = c_open;
+        open = c_open;
 
         // comment
         if (iter.nextCodepoint()) |c_comment| {
-            comment_ch = c_comment;
+            comment = c_comment;
 
             // "pm v"
             if (iter.nextCodepoint() == 'p' and iter.nextCodepoint() == 'm' and iter.nextCodepoint() == ' ' and iter.nextCodepoint() == 'v') {
 
                 // assign
                 if (iter.nextCodepoint()) |c_assign| {
-                    assign_ch = c_assign;
+                    assign = c_assign;
 
                     // quote
                     if (iter.nextCodepoint()) |c_quote| {
-                        quote_ch = c_quote;
+                        quote = c_quote;
 
                         // version
                         while (iter.nextCodepoint()) |c_version| {
@@ -91,14 +93,14 @@ pub fn init(source: []const u8) !Lexer {
                             } else {
 
                                 // closing quote
-                                if (c_version == quote_ch) {
+                                if (c_version == quote) {
 
                                     // comment
-                                    if (iter.nextCodepoint() == comment_ch) {
+                                    if (iter.nextCodepoint() == comment) {
 
                                         // close
                                         if (iter.nextCodepoint()) |c_close| {
-                                            close_ch = c_close;
+                                            close = c_close;
 
                                             valid_header = true;
                                         }
@@ -114,24 +116,32 @@ pub fn init(source: []const u8) !Lexer {
     }
 
     if (valid_header) {
-        lexer.open_char = open_ch;
-        lexer.close_char = close_ch;
-        lexer.assign_char = assign_ch;
-        lexer.quote_char = quote_ch;
-        lexer.comment_char = comment_ch;
-
         std.debug.print("open    '{u}'\nclose   '{u}'\nassign  '{u}'\nquote   '{u}'\ncomment '{u}'\n", .{
-            open_ch,
-            close_ch,
-            assign_ch,
-            quote_ch,
-            comment_ch,
+            open,
+            close,
+            assign,
+            quote,
+            comment,
         });
-    } else {
-        std.debug.print("invalid header\n", .{});
+
+        return .{
+            .open = open,
+            .close = close,
+            .assign = assign,
+            .quote = quote,
+            .comment = comment,
+        };
     }
 
-    return lexer;
+    std.debug.print("invalid header\n", .{});
+
+    return .{
+        .open = '(',
+        .close = ')',
+        .assign = '=',
+        .quote = '"',
+        .comment = '-',
+    };
 }
 
 pub fn absoluteRange(self: Lexer, tok: Token) AbsoluteRange {
@@ -233,7 +243,7 @@ fn errorToken(self: *Lexer, message: []const u8) Token {
 }
 
 fn isLiteral(self: Lexer, c: u21) bool {
-    return !(isWhitespace(c) or c == self.open_char or c == self.close_char or c == self.assign_char);
+    return !(isWhitespace(c) or c == self.header.open or c == self.header.close or c == self.header.assign);
 }
 
 fn isNumeric(c: u21) bool {
@@ -273,7 +283,7 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []con
                     break;
                 }
             }
-            if (try self.peekAt(depth) != self.close_char) {
+            if (try self.peekAt(depth) != self.header.close) {
                 end_found = false;
             }
             if (end_found) break;
@@ -295,7 +305,7 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []con
 fn content(self: *Lexer) !Token {
     while (!self.isAtEnd()) {
         const c = try self.peek();
-        if (c == self.open_char or c == self.close_char) {
+        if (c == self.header.open or c == self.header.close) {
             if (c != try self.peekAt(1)) break;
             try self.advance();
         }
@@ -307,20 +317,20 @@ fn content(self: *Lexer) !Token {
 fn contentOpen(self: *Lexer) !Token {
     if (!self.isAtEnd()) {
         const c = try self.peek();
-        if (c == self.open_char) {
+        if (c == self.header.open) {
             try self.advance();
             return self.content();
-        } else if (c == self.quote_char) {
-            return self.multiBlock(.literal_content, self.quote_char, "unterminated literal text");
-        } else if (c == self.comment_char) {
-            return self.multiBlock(.comment, self.comment_char, "unterminated comment");
+        } else if (c == self.header.quote) {
+            return self.multiBlock(.literal_content, self.header.quote, "unterminated literal text");
+        } else if (c == self.header.comment) {
+            return self.multiBlock(.comment, self.header.comment, "unterminated comment");
         }
     }
     return self.token(.open);
 }
 
 fn contentClose(self: *Lexer) !Token {
-    if (!self.isAtEnd() and try self.peek() == self.close_char) {
+    if (!self.isAtEnd() and try self.peek() == self.header.close) {
         try self.advance();
         return self.content();
     }
@@ -337,8 +347,8 @@ fn tagString(self: *Lexer) !Token {
     self.discard();
 
     while (!self.isAtEnd()) {
-        if (try self.peek() == self.quote_char) {
-            if (try self.peekAt(1) == self.quote_char) {
+        if (try self.peek() == self.header.quote) {
+            if (try self.peekAt(1) == self.header.quote) {
                 try self.advance();
             } else {
                 break;
@@ -364,9 +374,9 @@ pub fn lexToken(self: *Lexer) !Token {
         try self.advance();
 
         if (self.in_content) {
-            if (c == self.open_char) {
+            if (c == self.header.open) {
                 return self.contentOpen();
-            } else if (c == self.close_char) {
+            } else if (c == self.header.close) {
                 return self.contentClose();
             }
             return self.content();
@@ -374,13 +384,13 @@ pub fn lexToken(self: *Lexer) !Token {
             switch (c) {
                 ' ', '\t', '\r', '\n' => self.discard(),
                 else => {
-                    if (c == self.open_char) {
+                    if (c == self.header.open) {
                         return self.token(.open);
-                    } else if (c == self.close_char) {
+                    } else if (c == self.header.close) {
                         return self.token(.close);
-                    } else if (c == self.assign_char) {
+                    } else if (c == self.header.assign) {
                         return self.token(.assign);
-                    } else if (c == self.quote_char) {
+                    } else if (c == self.header.quote) {
                         return self.tagString();
                     }
                     return self.tagLiteral();
