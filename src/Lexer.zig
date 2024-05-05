@@ -295,7 +295,10 @@ fn multiBlock(self: *Lexer, tok_type: Token.Type, marker: u21, unterm_msg: []con
 fn content(self: *Lexer) !Token {
     while (!self.isAtEnd()) {
         const c = try self.peek();
-        if (c == self.open_char or c == self.close_char) break;
+        if (c == self.open_char or c == self.close_char) {
+            if (c != try self.peekAt(1)) break;
+            try self.advance();
+        }
         try self.advance();
     }
     return self.token(.content);
@@ -303,12 +306,13 @@ fn content(self: *Lexer) !Token {
 
 fn contentOpen(self: *Lexer) !Token {
     if (!self.isAtEnd()) {
-        if (try self.peek() == self.open_char) {
+        const c = try self.peek();
+        if (c == self.open_char) {
             try self.advance();
-            return self.token(.content);
-        } else if (try self.peek() == self.quote_char) {
+            return self.content();
+        } else if (c == self.quote_char) {
             return self.multiBlock(.literal_content, self.quote_char, "unterminated literal text");
-        } else if (try self.peek() == self.comment_char) {
+        } else if (c == self.comment_char) {
             return self.multiBlock(.comment, self.comment_char, "unterminated comment");
         }
     }
@@ -316,22 +320,11 @@ fn contentOpen(self: *Lexer) !Token {
 }
 
 fn contentClose(self: *Lexer) !Token {
-    if (!self.isAtEnd()) {
-        if (try self.peek() == self.close_char) {
-            try self.advance();
-            return self.token(.content);
-        }
+    if (!self.isAtEnd() and try self.peek() == self.close_char) {
+        try self.advance();
+        return self.content();
     }
     return self.token(.close);
-}
-
-fn tagOpen(self: *Lexer) !Token {
-    if (!self.isAtEnd()) {
-        if (try self.peek() == self.comment_char) {
-            return self.multiBlock(.comment, self.comment_char, "unterminated comment");
-        }
-    }
-    return self.token(.open);
 }
 
 fn tagLiteral(self: *Lexer) !Token {
@@ -382,7 +375,7 @@ pub fn lexToken(self: *Lexer) !Token {
                 ' ', '\t', '\r', '\n' => self.discard(),
                 else => {
                     if (c == self.open_char) {
-                        return self.tagOpen();
+                        return self.token(.open);
                     } else if (c == self.close_char) {
                         return self.token(.close);
                     } else if (c == self.assign_char) {

@@ -5,7 +5,6 @@ with (a) tag
 (with"quotes" "string "" yay")
 (-comment-)
 (--- larger comment where -) won't end it ----)
-(tag (-with a comment!-))
 ("some literal text")
 (""
 some multi-line literal text "with some quotes" and such...

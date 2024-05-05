@@ -62,7 +62,7 @@ fn advance(self: *Parser) !void {
         // debug
         std.debug.print("{}:{} '{s}'\n", .{ self.current.type, self.current.depth, self.current.value });
 
-        if (self.current.type != .comment and self.current.type != .error_) break;
+        if (self.current.type != .error_) break;
     }
 }
 
@@ -104,6 +104,8 @@ fn parseContent(self: *Parser) !void {
         try self.appendUnescapeContent(self.previous.value);
     } else if (try self.match(.literal_content)) {
         try self.append(self.previous.value);
+    } else if (try self.match(.comment)) {
+        // TODO comments
     } else {
         // TODO tags
         try self.advance();
