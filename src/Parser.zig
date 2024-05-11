@@ -7,7 +7,24 @@ const Token = Lexer.Token;
 
 const Result = struct {
     const Tag = struct {
+        const Property = struct {
+            name: []const u8,
+            value: ?[]const u8,
+        };
+
         name: []const u8,
+        properties: std.ArrayList(Property),
+
+        pub fn init(alloc: Allocator, name: []const u8) Tag {
+            return .{
+                .name = name,
+                .properties = std.ArrayList(Property).init(alloc),
+            };
+        }
+
+        pub fn deinit(self: Tag) void {
+            self.properties.deinit();
+        }
     };
 
     const DepthVal = struct {
@@ -51,14 +68,28 @@ const Result = struct {
     }
 
     pub fn deinit(self: Result) void {
+        for (self.items.items) |item| {
+            switch (item) {
+                .open_tag => item.open_tag.deinit(),
+                .close_tag => item.close_tag.deinit(),
+                .tag => item.tag.deinit(),
+                else => {},
+            }
+        }
         self.items.deinit();
     }
 
     pub fn print(self: Result) void {
-        std.debug.print("Results:\n", .{});
         for (self.items.items) |i| {
             i.print();
         }
+    }
+
+    fn appendComment(self: *Result, value: []const u8, depth: u8) !void {
+        try self.items.append(.{ .comment = .{
+            .depth = depth,
+            .value = value,
+        } });
     }
 
     fn appendContent(self: *Result, value: []const u8) !void {
@@ -71,10 +102,15 @@ const Result = struct {
             .value = value,
         } });
     }
+
+    fn appendOpenTag(self: *Result, tag: Tag) !void {
+        try self.items.append(.{ .open_tag = tag });
+    }
 };
 
 const Parser = @This();
 
+allocator: Allocator,
 lexer: Lexer,
 current: Token,
 previous: Token,
@@ -147,15 +183,13 @@ fn appendUnescapeContent(self: *Parser, val: []const u8) !void {
 
 fn parseContent(self: *Parser) !void {
     if (try self.match(.content)) {
-        // try self.appendUnescapeContent(self.previous.value);
         try self.result.appendContent(self.previous.value);
     } else if (try self.match(.literal_content)) {
         try self.result.appendLiteralContent(self.previous.value, self.previous.depth);
     } else if (try self.match(.comment)) {
-        // TODO comments
+        try self.result.appendComment(self.previous.value, self.previous.depth);
     } else {
-        // TODO tags
-        try self.advance();
+        try self.parseTag();
     }
 }
 
@@ -165,8 +199,16 @@ fn parseFile(self: *Parser) !void {
     }
 }
 
+fn parseTag(self: *Parser) !void {
+    try self.advance();
+
+    const tag = Result.Tag.init(self.allocator, self.previous.value);
+    try self.result.appendOpenTag(tag);
+}
+
 pub fn parse(alloc: Allocator, source: []const u8) !Result {
     var parser = Parser{
+        .allocator = alloc,
         .lexer = try Lexer.init(source),
         .current = undefined,
         .previous = undefined,

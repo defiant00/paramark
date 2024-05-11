@@ -39,6 +39,7 @@ fn fileDebug(alloc: Allocator, path: []const u8) !void {
     const result = try Parser.parse(alloc, source);
     defer result.deinit();
 
+    std.debug.print("\nResults:\n", .{});
     result.print();
 }
 
