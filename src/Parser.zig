@@ -7,22 +7,35 @@ const Token = Lexer.Token;
 
 const Result = struct {
     const Tag = struct {
-        const Property = struct {
-            name: []const u8,
-            value: ?[]const u8,
+        const Value = struct {
+            value: []const u8,
+            is_string: bool,
+
+            fn print(self: Value) void {
+                if (self.is_string) {
+                    std.debug.print("\"{s}\" (str)", .{self.value});
+                } else {
+                    std.debug.print("\"{s}\"", .{self.value});
+                }
+            }
         };
 
-        name: []const u8,
+        const Property = struct {
+            name: Value,
+            value: ?Value,
+        };
+
+        name: Value,
         properties: std.ArrayList(Property),
 
-        pub fn init(alloc: Allocator, name: []const u8) Tag {
+        fn init(alloc: Allocator, name: []const u8, is_string: bool) Tag {
             return .{
-                .name = name,
+                .name = .{ .value = name, .is_string = is_string },
                 .properties = std.ArrayList(Property).init(alloc),
             };
         }
 
-        pub fn deinit(self: Tag) void {
+        fn deinit(self: Tag) void {
             self.properties.deinit();
         }
     };
@@ -47,21 +60,35 @@ const Result = struct {
                     self.literal_content.depth,
                     self.literal_content.value,
                 }),
-                .open_tag, .close_tag, .tag => {
-                    std.debug.print("{}\n", .{self});
-                    // TODO print out properties
-                },
+                .open_tag => printTag(self.open_tag, "open "),
+                .close_tag => printTag(self.close_tag, "close "),
+                .tag => printTag(self.tag, ""),
                 .comment => std.debug.print("comment ({}): \"{s}\"\n", .{
                     self.comment.depth,
                     self.comment.value,
                 }),
             }
         }
+
+        fn printTag(tag: Tag, desc: []const u8) void {
+            std.debug.print("{s}tag ", .{desc});
+            tag.name.print();
+            std.debug.print("\n", .{});
+            for (tag.properties.items) |prop| {
+                std.debug.print("  ", .{});
+                prop.name.print();
+                if (prop.value) |val| {
+                    std.debug.print(" = ", .{});
+                    val.print();
+                }
+                std.debug.print("\n", .{});
+            }
+        }
     };
 
     items: std.ArrayList(Item),
 
-    pub fn init(alloc: Allocator) Result {
+    fn init(alloc: Allocator) Result {
         return .{
             .items = std.ArrayList(Item).init(alloc),
         };
@@ -106,6 +133,14 @@ const Result = struct {
     fn appendOpenTag(self: *Result, tag: Tag) !void {
         try self.items.append(.{ .open_tag = tag });
     }
+
+    fn appendCloseTag(self: *Result, tag: Tag) !void {
+        try self.items.append(.{ .close_tag = tag });
+    }
+
+    fn appendTag(self: *Result, tag: Tag) !void {
+        try self.items.append(.{ .tag = tag });
+    }
 };
 
 const Parser = @This();
@@ -117,7 +152,7 @@ previous: Token,
 result: Result,
 
 fn errorAt(self: Parser, token: Token, message: []const u8) !void {
-    const range = self.lexer.absoluteRange(token);
+    const range = try self.lexer.absoluteRange(token);
     if (token.type == .eof) {
         std.debug.print("[{d}, {d}]-[{d}, {d}] at end: {s}\n", .{
             range.start_line + 1,
@@ -188,8 +223,10 @@ fn parseContent(self: *Parser) !void {
         try self.result.appendLiteralContent(self.previous.value, self.previous.depth);
     } else if (try self.match(.comment)) {
         try self.result.appendComment(self.previous.value, self.previous.depth);
-    } else {
+    } else if (try self.match(.open) or try self.match(.close)) {
         try self.parseTag();
+    } else {
+        try self.errorAt(self.current, "invalid token in content");
     }
 }
 
@@ -200,10 +237,47 @@ fn parseFile(self: *Parser) !void {
 }
 
 fn parseTag(self: *Parser) !void {
-    try self.advance();
+    const start_type = self.previous.type;
 
-    const tag = Result.Tag.init(self.allocator, self.previous.value);
-    try self.result.appendOpenTag(tag);
+    if (try self.match(.literal) or try self.match(.string)) {
+        var tag = Result.Tag.init(self.allocator, self.previous.value, self.previous.type == .string);
+        while (!try self.match(.eof)) {
+            if (try self.match(.literal) or try self.match(.string)) {
+                try self.parseProperty(&tag);
+            } else if (try self.match(.open) and start_type == .open) {
+                try self.result.appendOpenTag(tag);
+                break;
+            } else if (try self.match(.close)) {
+                if (start_type == .close) {
+                    try self.result.appendCloseTag(tag);
+                } else {
+                    try self.result.appendTag(tag);
+                }
+                break;
+            } else {
+                try self.errorAt(self.current, "invalid token in tag");
+            }
+        }
+    }
+}
+
+fn parseProperty(self: *Parser, tag: *Result.Tag) !void {
+    const name = .{
+        .value = self.previous.value,
+        .is_string = self.previous.type == .string,
+    };
+    var value: ?Result.Tag.Value = null;
+    if (try self.match(.assign)) {
+        if (try self.match(.literal) or try self.match(.string)) {
+            value = .{
+                .value = self.previous.value,
+                .is_string = self.previous.type == .string,
+            };
+        } else {
+            try self.errorAt(self.current, "invalid token in tag");
+        }
+    }
+    try tag.properties.append(.{ .name = name, .value = value });
 }
 
 pub fn parse(alloc: Allocator, source: []const u8) !Result {

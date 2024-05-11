@@ -3,6 +3,7 @@ this is ((some)) content
 with (a) tag
 (fancy a b "c" d=e "f"=g "h" i="j" "k"="l"( content! )fancy)
 (with"quotes" "string "" yay")
+( "string tag" 1 2 3(neat)"string tag" 1 2 3)
 (-comment-)
 (--- larger comment where -) won't end it ----)
 ("some literal text")

@@ -144,8 +144,8 @@ pub fn parseHeader(source: []const u8) !Header {
     };
 }
 
-pub fn absoluteRange(self: Lexer, tok: Token) AbsoluteRange {
-    var ar = .{
+pub fn absoluteRange(self: Lexer, tok: Token) !AbsoluteRange {
+    var ar = AbsoluteRange{
         .start_line = 0,
         .start_column = 0,
         .end_line = 0,
