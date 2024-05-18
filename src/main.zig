@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const Parser = @import("Parser.zig");
+const ToXml = @import("ToXml.zig");
 
 const paramark_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 const spec_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
@@ -72,8 +73,7 @@ fn fileToXml(alloc: Allocator, path: []const u8) !void {
 
     var buffered_writer = std.io.bufferedWriter(out_file.writer());
 
-    // TODO - write out results
-    try buffered_writer.writer().writeAll("xml!\n");
+    try ToXml.convert(result, buffered_writer.writer().any());
     try buffered_writer.flush();
 }
 
